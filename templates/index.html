@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VirtualBox Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+/* ── Reset & Variables ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy:        #0b1826;
+  --navy-2:      #132035;
+  --navy-3:      #1a2e48;
+  --blue:        #1d6fe5;
+  --blue-2:      #3b82f6;
+  --blue-glow:   rgba(29, 111, 229, 0.14);
+  --green:       #10b981;
+  --green-bg:    rgba(16, 185, 129, 0.11);
+  --red:         #ef4444;
+  --red-bg:      rgba(239, 68, 68, 0.10);
+  --yellow:      #f59e0b;
+  --yellow-bg:   rgba(245, 158, 11, 0.10);
+  --gray:        #64748b;
+  --gray-2:      #94a3b8;
+  --gray-light:  #e2e8f0;
+  --bg:          #f1f5f9;
+  --white:       #ffffff;
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.07), 0 2px 8px rgba(0,0,0,.04);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.10), 0 8px 24px rgba(0,0,0,.06);
+  --radius:      12px;
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+body { font-family: var(--font); background: var(--bg); color: var(--navy); min-height: 100vh; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+header {
+  background: var(--navy);
+  position: sticky; top: 0; z-index: 100;
+  box-shadow: 0 2px 24px rgba(0,0,0,.35);
+}
+.header-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding: 0 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 66px;
+}
+.logo {
+  display: flex; align-items: center; gap: 13px;
+  text-decoration: none;
+}
+.logo-mark {
+  width: 38px; height: 38px;
+  background: var(--blue);
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+}
+.logo-mark svg { width: 22px; height: 22px; }
+.logo-text { color: #fff; font-size: 17px; font-weight: 800; letter-spacing: -.4px; }
+.logo-text em { color: var(--blue-2); font-style: normal; }
+
+nav { display: flex; gap: 2px; }
+nav a {
+  color: rgba(255,255,255,.55);
+  text-decoration: none; font-size: 13.5px; font-weight: 500;
+  padding: 8px 15px; border-radius: 7px;
+  transition: all .15s;
+}
+nav a:hover, nav a.active { color: #fff; background: rgba(255,255,255,.09); }
+
+.hdr-right { display: flex; align-items: center; gap: 20px; }
+.live-pill {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  padding: 5px 12px; border-radius: 20px;
+  color: rgba(255,255,255,.55); font-size: 12px;
+}
+.live-dot {
+  width: 7px; height: 7px;
+  background: var(--green); border-radius: 50%;
+  animation: blink 2s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+.hdr-time { color: rgba(255,255,255,.35); font-size: 12px; }
+
+/* ── Alert banner ───────────────────────────────────────────────────────── */
+.alert {
+  background: rgba(239,68,68,.08);
+  border: 1px solid rgba(239,68,68,.2);
+  color: #b91c1c;
+  padding: 12px 20px; border-radius: 10px;
+  font-size: 13.5px; margin-bottom: 24px;
+  display: none;
+}
+
+/* ── Main layout ────────────────────────────────────────────────────────── */
+main { max-width: 1440px; margin: 0 auto; padding: 36px 28px 64px; }
+
+.page-head { margin-bottom: 32px; }
+.page-head h1 { font-size: 26px; font-weight: 800; letter-spacing: -.5px; }
+.page-head p  { color: var(--gray); font-size: 14.5px; margin-top: 5px; }
+
+/* ── Stats strip ────────────────────────────────────────────────────────── */
+.stats-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 40px;
+}
+.stat-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0,0,0,.055);
+  position: relative; overflow: hidden;
+}
+.stat-card::after {
+  content: '';
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: var(--blue);
+}
+.stat-card.g::after { background: var(--green); }
+.stat-card.r::after { background: var(--red); }
+.stat-card.y::after { background: var(--yellow); }
+.stat-card.p::after { background: #7c3aed; }
+
+.stat-label {
+  font-size: 10.5px; font-weight: 700;
+  color: var(--gray-2); text-transform: uppercase; letter-spacing: .9px;
+  margin-bottom: 10px;
+}
+.stat-val {
+  font-size: 34px; font-weight: 900; letter-spacing: -1.5px;
+  line-height: 1; color: var(--navy);
+}
+.stat-val sup { font-size: 14px; font-weight: 600; color: var(--gray); margin-left: 3px; vertical-align: top; margin-top: 6px; display: inline-block; }
+.stat-sub { font-size: 12px; color: var(--gray-2); margin-top: 7px; }
+
+/* ── Section header ─────────────────────────────────────────────────────── */
+.sec-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+.sec-title { font-size: 17px; font-weight: 800; }
+.sec-badge {
+  background: var(--blue-glow); color: var(--blue);
+  font-size: 11.5px; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px;
+}
+
+/* ── VM Grid ────────────────────────────────────────────────────────────── */
+.vm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+.vm-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0,0,0,.06);
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow .2s, transform .18s;
+}
+.vm-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+/* ---- card header ---- */
+.vm-card-hdr {
+  padding: 18px 20px 14px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--gray-light);
+}
+.vm-name  { font-size: 15.5px; font-weight: 700; word-break: break-word; }
+.vm-os    { font-size: 11.5px; color: var(--gray-2); margin-top: 3px; }
+
+.badge {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 10px; border-radius: 20px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.badge.run { background: var(--green-bg); color: #059669; }
+.badge.stop { background: rgba(100,116,139,.1); color: var(--gray); }
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge.run .badge-dot { animation: blink 1.5s infinite; }
+
+/* ---- card specs ---- */
+.vm-specs {
+  padding: 11px 20px;
+  display: flex; flex-wrap: wrap; gap: 16px;
+  border-bottom: 1px solid var(--gray-light);
+}
+.spec { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--gray); }
+.spec b { color: var(--navy); font-weight: 700; }
+
+/* ---- metric bars ---- */
+.vm-metrics { padding: 14px 20px; }
+.m-row { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.m-row:last-child { margin-bottom: 0; }
+.m-key { font-size: 11px; font-weight: 700; color: var(--gray-2); width: 30px; flex-shrink: 0; }
+.m-track { flex: 1; height: 5px; background: var(--gray-light); border-radius: 3px; overflow: hidden; }
+.m-fill { height: 100%; border-radius: 3px; transition: width .5s ease; }
+.m-fill.cpu { background: linear-gradient(90deg, #1d6fe5, #60a5fa); }
+.m-fill.ram { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
+.m-val { font-size: 11.5px; font-weight: 700; color: var(--navy); width: 40px; text-align: right; flex-shrink: 0; }
+
+.net-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; color: var(--gray); padding-top: 4px;
+}
+.net-row span { color: var(--navy); font-weight: 700; }
+
+/* ---- mini chart ---- */
+.mini-chart-wrap { padding: 0 20px 14px; }
+.mini-chart { height: 56px; }
+
+/* ---- stopped state ---- */
+.vm-off {
+  padding: 22px 20px;
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; color: var(--gray-2); font-size: 13px;
+}
+
+/* ── Loading / empty ────────────────────────────────────────────────────── */
+.loading {
+  grid-column: 1/-1;
+  padding: 64px 20px; text-align: center; color: var(--gray);
+}
+.spinner {
+  width: 38px; height: 38px;
+  border: 3px solid var(--gray-light);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+.overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(11,24,38,.72);
+  z-index: 200;
+  backdrop-filter: blur(5px);
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.overlay.open { display: flex; }
+
+.modal {
+  background: var(--white);
+  border-radius: 16px;
+  width: 100%; max-width: 820px;
+  max-height: 92vh; overflow-y: auto;
+  box-shadow: 0 30px 60px rgba(0,0,0,.3);
+}
+.modal-hdr {
+  padding: 24px 28px;
+  border-bottom: 1px solid var(--gray-light);
+  display: flex; align-items: flex-start; justify-content: space-between;
+  position: sticky; top: 0; background: var(--white); z-index: 1;
+}
+.modal-title { font-size: 21px; font-weight: 800; }
+.modal-sub   { font-size: 12.5px; color: var(--gray); margin-top: 4px; }
+.btn-close {
+  background: var(--gray-light); border: none; cursor: pointer;
+  width: 32px; height: 32px; border-radius: 8px;
+  font-size: 16px; color: var(--gray);
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s; flex-shrink: 0;
+}
+.btn-close:hover { background: var(--navy); color: #fff; }
+
+.modal-body { padding: 26px 28px; }
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px; margin-bottom: 28px;
+}
+.info-cell {
+  background: var(--bg); border-radius: 10px; padding: 14px;
+}
+.info-lbl  { font-size: 10.5px; font-weight: 700; color: var(--gray-2); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 6px; }
+.info-val  { font-size: 19px; font-weight: 800; color: var(--navy); }
+.info-val small { font-size: 12px; font-weight: 500; color: var(--gray); margin-left: 2px; }
+
+.chart-block { margin-bottom: 24px; }
+.chart-lbl {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12.5px; font-weight: 700; color: var(--gray);
+  margin-bottom: 10px;
+}
+.chart-lbl .cur { font-size: 15px; font-weight: 800; color: var(--navy); }
+.chart-box { height: 140px; }
+
+.net-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.net-cap  { font-size: 11px; color: var(--gray-2); margin-bottom: 6px; }
+
+.modal-off {
+  text-align: center; padding: 44px 20px; color: var(--gray);
+}
+.modal-off .icon { font-size: 44px; margin-bottom: 12px; }
+.modal-off h3 { font-size: 16px; font-weight: 700; }
+.modal-off p  { font-size: 13px; color: var(--gray-2); margin-top: 6px; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+footer {
+  background: var(--navy-2);
+  color: rgba(255,255,255,.35);
+  text-align: center; font-size: 12.5px; padding: 22px;
+}
+footer em { color: var(--blue-2); font-style: normal; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .vm-grid { grid-template-columns: 1fr; }
+  .stats-strip { grid-template-columns: repeat(2, 1fr); }
+  nav { display: none; }
+  .hdr-time { display: none; }
+  main { padding: 20px 16px 48px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────────────────── -->
+<header>
+  <div class="header-inner">
+    <a class="logo" href="#">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+          <circle cx="8" cy="10" r="1.5" fill="#fff" stroke="none"/>
+          <circle cx="12" cy="10" r="1.5" fill="#fff" stroke="none"/>
+          <circle cx="16" cy="10" r="1.5" fill="#fff" stroke="none"/>
+        </svg>
+      </div>
+      <span class="logo-text">Vbox<em>Monitor</em></span>
+    </a>
+
+    <nav>
+      <a href="#" class="active">Dashboard</a>
+      <a href="#vms-section">Machines</a>
+    </nav>
+
+    <div class="hdr-right">
+      <div class="live-pill">
+        <div class="live-dot"></div>
+        <span id="lbl-update">Verbinden…</span>
+      </div>
+      <div class="hdr-time" id="lbl-time"></div>
+    </div>
+  </div>
+</header>
+
+<!-- ── Main ────────────────────────────────────────────────────────────────── -->
+<main>
+  <div class="page-head">
+    <h1>Infrastructuur Dashboard</h1>
+    <p>Real-time monitoring van VirtualBox virtuele machines op deze machine</p>
+  </div>
+
+  <div class="alert" id="alert-box">
+    ⚠ Kan VBoxManage niet bereiken. Controleer of VirtualBox is geïnstalleerd en herstart de server.
+  </div>
+
+  <!-- Stats strip -->
+  <div class="stats-strip">
+    <div class="stat-card">
+      <div class="stat-label">Totaal VMs</div>
+      <div class="stat-val" id="s-total">—</div>
+      <div class="stat-sub">Geconfigureerde machines</div>
+    </div>
+    <div class="stat-card g">
+      <div class="stat-label">Actief</div>
+      <div class="stat-val" id="s-run">—</div>
+      <div class="stat-sub">Draaiende machines</div>
+    </div>
+    <div class="stat-card r">
+      <div class="stat-label">Gestopt</div>
+      <div class="stat-val" id="s-stop">—</div>
+      <div class="stat-sub">Uitgeschakelde machines</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Totaal vCPU</div>
+      <div class="stat-val" id="s-cpu">—</div>
+      <div class="stat-sub">Toegewezen cores</div>
+    </div>
+    <div class="stat-card y">
+      <div class="stat-label">Totaal RAM</div>
+      <div class="stat-val" id="s-ram">—</div>
+      <div class="stat-sub">Toegewezen geheugen</div>
+    </div>
+    <div class="stat-card p">
+      <div class="stat-label">Gem. CPU-last</div>
+      <div class="stat-val" id="s-avgcpu">—<sup>%</sup></div>
+      <div class="stat-sub">Actieve machines</div>
+    </div>
+  </div>
+
+  <!-- VM grid -->
+  <div id="vms-section">
+    <div class="sec-hdr">
+      <div class="sec-title">Virtuele Machines</div>
+      <div class="sec-badge" id="vm-badge">Laden…</div>
+    </div>
+    <div class="vm-grid" id="vm-grid">
+      <div class="loading">
+        <div class="spinner"></div>
+        <div>VirtualBox-gegevens ophalen…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── Modal ────────────────────────────────────────────────────────────────── -->
+<div class="overlay" id="overlay" onclick="overlayClick(event)">
+  <div class="modal" id="modal">
+    <div class="modal-hdr">
+      <div>
+        <div class="modal-title" id="m-title">—</div>
+        <div class="modal-sub"  id="m-sub">—</div>
+      </div>
+      <button class="btn-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="m-body"></div>
+  </div>
+</div>
+
+<footer>
+  VboxMonitor &mdash; gebouwd met <em>Flask</em> + <em>VBoxManage</em> + <em>Chart.js</em>
+</footer>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allVms      = [];
+let openVmName  = null;
+let miniCharts  = {};
+let modalCharts = {};
+const POLL_MS   = 5000;
+
+// ── Colour palette ──────────────────────────────────────────────────────────
+const COL = {
+  cpu:  { line: '#1d6fe5', fill: 'rgba(29,111,229,.13)' },
+  ram:  { line: '#7c3aed', fill: 'rgba(124,58,237,.13)' },
+  netrx:{ line: '#0891b2', fill: 'rgba(8,145,178,.13)'  },
+  nettx:{ line: '#f59e0b', fill: 'rgba(245,158,11,.13)' },
+};
+
+// ── Format helpers ──────────────────────────────────────────────────────────
+const fmtMb = mb => mb >= 1024 ? (mb/1024).toFixed(mb>=10240?0:1)+' GB' : mb+' MB';
+const fmtPct = v  => (v||0).toFixed(1)+'%';
+const fmtNet = v  => !v ? '0 B/s' : v >= 1024 ? (v/1024).toFixed(1)+' MB/s' : v.toFixed(1)+' kB/s';
+const esc    = s  => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const safeId = n  => n.replace(/[^a-zA-Z0-9]/g,'_');
+const tLabel = ts => new Date(ts*1000).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
+// ── Chart factory ────────────────────────────────────────────────────────────
+function makeChart(canvas, col, data=[], labels=[], yMax=100, unit='%', mini=false) {
+  return new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        borderColor: col.line,
+        backgroundColor: col.fill,
+        borderWidth: mini ? 1.5 : 2,
+        fill: true, tension: 0.4,
+        pointRadius: 0, pointHoverRadius: mini ? 0 : 4,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: mini ? 0 : 250 },
+      plugins: {
+        legend: { display: false },
+        tooltip: mini ? { enabled: false } : {
+          callbacks: { label: c => c.parsed.y.toFixed(2)+' '+unit }
+        }
+      },
+      scales: {
+        x: mini ? { display: false } : {
+          display: true,
+          ticks: { maxTicksLimit: 6, font: { size: 10 }, color: '#94a3b8', maxRotation: 0 },
+          grid:  { color: '#f1f5f9' }
+        },
+        y: {
+          display: !mini,
+          min: 0, max: yMax || undefined,
+          ticks: { font: { size: 10 }, color: '#94a3b8', callback: v => v+(unit==='%'?'%':'') },
+          grid:  { color: '#f1f5f9' }
+        }
+      }
+    }
+  });
+}
+
+// ── Fetch ────────────────────────────────────────────────────────────────────
+async function apiFetch(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(path+' → '+r.status);
+  return r.json();
+}
+
+// ── Render overview stats ────────────────────────────────────────────────────
+function renderOverview(d) {
+  document.getElementById('s-total').textContent = d.total_vms ?? '—';
+  document.getElementById('s-run').textContent   = d.running_vms ?? '—';
+  document.getElementById('s-stop').textContent  = d.stopped_vms ?? '—';
+  document.getElementById('s-cpu').textContent   = d.total_cpus ?? '—';
+  document.getElementById('s-avgcpu').innerHTML  = (d.avg_cpu_pct ?? '—')+'<sup>%</sup>';
+  const mb = d.total_memory_mb;
+  document.getElementById('s-ram').textContent   = mb != null ? (mb>=1024?(mb/1024).toFixed(0)+' GB':mb+' MB') : '—';
+  if (d.vboxmanage_ok === false) {
+    document.getElementById('alert-box').style.display = 'block';
+  }
+}
+
+// ── Render VM grid ────────────────────────────────────────────────────────────
+function renderGrid(vms) {
+  const grid = document.getElementById('vm-grid');
+  document.getElementById('vm-badge').textContent = vms.length+' machines';
+
+  // destroy old mini-charts
+  Object.values(miniCharts).forEach(c => c.destroy());
+  miniCharts = {};
+
+  grid.innerHTML = vms.map(cardHtml).join('');
+
+  // init mini charts
+  vms.forEach(vm => {
+    if (vm.status !== 'running' || !vm.history) return;
+    const sid = safeId(vm.name);
+    const cpuEl = document.getElementById('mc-cpu-'+sid);
+    const ramEl = document.getElementById('mc-ram-'+sid);
+    if (cpuEl) miniCharts['cpu-'+vm.name] = makeChart(cpuEl, COL.cpu, vm.history.cpu, vm.history.cpu.map(()=>''), 100, '%', true);
+    if (ramEl) miniCharts['ram-'+vm.name] = makeChart(ramEl, COL.ram, vm.history.ram_percent, vm.history.ram_percent.map(()=>''), 100, '%', true);
+  });
+}
+
+function cardHtml(vm) {
+  const sid  = safeId(vm.name);
+  const run  = vm.status === 'running';
+  const m    = vm.metrics || {};
+
+  return `
+<div class="vm-card" onclick="openModal('${vm.name.replace(/'/g,"\\'")}')">
+  <div class="vm-card-hdr">
+    <div>
+      <div class="vm-name">${esc(vm.name)}</div>
+      <div class="vm-os">${esc(vm.os_type)}</div>
+    </div>
+    <div class="badge ${run?'run':'stop'}">
+      <div class="badge-dot"></div>${run?'Actief':'Gestopt'}
+    </div>
+  </div>
+
+  <div class="vm-specs">
+    <div class="spec">💻 <b>${vm.cpus}</b> vCPU</div>
+    <div class="spec">🧠 <b>${fmtMb(vm.memory_mb)}</b></div>
+    <div class="spec">🌐 <b>${vm.net_adapters}</b> NIC</div>
+  </div>
+
+  ${run && m.cpu_total !== undefined ? `
+  <div class="vm-metrics">
+    <div class="m-row">
+      <div class="m-key">CPU</div>
+      <div class="m-track"><div class="m-fill cpu" style="width:${Math.min(m.cpu_total,100)}%"></div></div>
+      <div class="m-val">${fmtPct(m.cpu_total)}</div>
+    </div>
+    <div class="m-row">
+      <div class="m-key">RAM</div>
+      <div class="m-track"><div class="m-fill ram" style="width:${Math.min(m.ram_percent,100)}%"></div></div>
+      <div class="m-val">${fmtPct(m.ram_percent)}</div>
+    </div>
+    <div class="net-row">
+      <span>Netwerk I/O</span>
+      <span>↓ ${fmtNet(m.net_rx_kbps)} &nbsp; ↑ ${fmtNet(m.net_tx_kbps)}</span>
+    </div>
+  </div>
+  ${vm.history ? `
+  <div class="mini-chart-wrap">
+    <canvas id="mc-cpu-${sid}" class="mini-chart"></canvas>
+  </div>` : ''}
+  ` : `
+  <div class="vm-off">⏸ &nbsp;Machine is uitgeschakeld</div>
+  `}
+</div>`;
+}
+
+// ── Modal ────────────────────────────────────────────────────────────────────
+function openModal(name) {
+  openVmName = name;
+  const vm  = allVms.find(v => v.name === name);
+  if (!vm) return;
+
+  document.getElementById('m-title').textContent = vm.name;
+  document.getElementById('m-sub').textContent   = `${vm.os_type}  ·  UUID: ${vm.uuid}`;
+
+  Object.values(modalCharts).forEach(c => c.destroy());
+  modalCharts = {};
+
+  const m   = vm.metrics || {};
+  const h   = vm.history  || {};
+  const run = vm.status === 'running';
+  const ts  = (h.timestamps||[]).map(tLabel);
+
+  document.getElementById('m-body').innerHTML = `
+<div class="info-grid">
+  <div class="info-cell">
+    <div class="info-lbl">Status</div>
+    <div class="info-val" style="color:${run?'#059669':'#64748b'}">${run?'● Actief':'○ Gestopt'}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">vCPUs</div>
+    <div class="info-val">${vm.cpus}<small>cores</small></div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">Geheugen</div>
+    <div class="info-val">${fmtMb(vm.memory_mb)}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">Video RAM</div>
+    <div class="info-val">${vm.vram_mb}<small>MB</small></div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">Netw. adapters</div>
+    <div class="info-val">${vm.net_adapters}<small>NIC</small></div>
+  </div>
+  ${run ? `
+  <div class="info-cell">
+    <div class="info-lbl">CPU gebruik</div>
+    <div class="info-val">${fmtPct(m.cpu_total)}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">RAM gebruik</div>
+    <div class="info-val">${fmtPct(m.ram_percent)}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-lbl">RAM gebruikt</div>
+    <div class="info-val">${fmtMb(Math.round(m.ram_used_mb||0))}</div>
+  </div>` : ''}
+</div>
+
+${run && h.cpu && h.cpu.length ? `
+<div class="chart-block">
+  <div class="chart-lbl">CPU Belasting <span class="cur">${fmtPct(m.cpu_total)}</span></div>
+  <div class="chart-box"><canvas id="mc-detail-cpu"></canvas></div>
+</div>
+<div class="chart-block">
+  <div class="chart-lbl">Geheugengebruik <span class="cur">${fmtPct(m.ram_percent)}</span></div>
+  <div class="chart-box"><canvas id="mc-detail-ram"></canvas></div>
+</div>
+<div class="chart-block">
+  <div class="chart-lbl">Netwerk I/O
+    <span class="cur">↓ ${fmtNet(m.net_rx_kbps)} &nbsp; ↑ ${fmtNet(m.net_tx_kbps)}</span>
+  </div>
+  <div class="net-grid">
+    <div>
+      <div class="net-cap">Ontvangen (kB/s)</div>
+      <div class="chart-box"><canvas id="mc-detail-rx"></canvas></div>
+    </div>
+    <div>
+      <div class="net-cap">Verzonden (kB/s)</div>
+      <div class="chart-box"><canvas id="mc-detail-tx"></canvas></div>
+    </div>
+  </div>
+</div>
+` : !run ? `
+<div class="modal-off">
+  <div class="icon">⏸</div>
+  <h3>Machine is uitgeschakeld</h3>
+  <p>Start de VM om live statistieken te bekijken</p>
+</div>` : `
+<div class="modal-off">
+  <div class="icon">⏳</div>
+  <h3>Gegevens verzamelen…</h3>
+  <p>Even wachten op de eerste meting</p>
+</div>`}
+`;
+
+  document.getElementById('overlay').classList.add('open');
+
+  if (run && h.cpu && h.cpu.length) {
+    requestAnimationFrame(() => {
+      modalCharts.cpu = makeChart(document.getElementById('mc-detail-cpu'), COL.cpu,   h.cpu,        ts, 100, '%');
+      modalCharts.ram = makeChart(document.getElementById('mc-detail-ram'), COL.ram,   h.ram_percent, ts, 100, '%');
+      modalCharts.rx  = makeChart(document.getElementById('mc-detail-rx'),  COL.netrx, h.net_rx,      ts, null, 'kB/s');
+      modalCharts.tx  = makeChart(document.getElementById('mc-detail-tx'),  COL.nettx, h.net_tx,      ts, null, 'kB/s');
+    });
+  }
+}
+
+function updateModalInPlace(vm) {
+  if (!vm || vm.status !== 'running' || !vm.history) return;
+  const m  = vm.metrics || {};
+  const h  = vm.history;
+  const ts = h.timestamps.map(tLabel);
+
+  // update text spans
+  document.querySelectorAll('#m-body .chart-lbl .cur').forEach((el, i) => {
+    if (i===0) el.textContent = fmtPct(m.cpu_total);
+    if (i===1) el.textContent = fmtPct(m.ram_percent);
+    if (i===2) el.textContent = `↓ ${fmtNet(m.net_rx_kbps)}   ↑ ${fmtNet(m.net_tx_kbps)}`;
+  });
+
+  function upd(chart, data) {
+    if (!chart) return;
+    chart.data.datasets[0].data = data;
+    chart.data.labels = ts;
+    chart.update('none');
+  }
+  upd(modalCharts.cpu, h.cpu);
+  upd(modalCharts.ram, h.ram_percent);
+  upd(modalCharts.rx,  h.net_rx);
+  upd(modalCharts.tx,  h.net_tx);
+}
+
+function closeModal() {
+  document.getElementById('overlay').classList.remove('open');
+  openVmName = null;
+  Object.values(modalCharts).forEach(c => c.destroy());
+  modalCharts = {};
+}
+
+function overlayClick(e) {
+  if (e.target === document.getElementById('overlay')) closeModal();
+}
+
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModal(); });
+
+// ── Clock ────────────────────────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('lbl-time').textContent =
+    new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Main refresh loop ────────────────────────────────────────────────────────
+let firstLoad = true;
+
+async function refresh() {
+  try {
+    const [ov, vms] = await Promise.all([apiFetch('/api/overview'), apiFetch('/api/vms')]);
+    allVms = vms;
+    renderOverview(ov);
+    renderGrid(vms);
+
+    if (openVmName) {
+      const vm = vms.find(v => v.name === openVmName);
+      if (vm) {
+        if (!firstLoad && Object.keys(modalCharts).length) {
+          updateModalInPlace(vm);
+        } else {
+          openModal(openVmName);
+        }
+      }
+    }
+
+    firstLoad = false;
+    document.getElementById('lbl-update').textContent =
+      'Bijgewerkt: ' + new Date().toLocaleTimeString('nl-NL', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    document.getElementById('alert-box').style.display = 'none';
+  } catch (err) {
+    document.getElementById('alert-box').style.display = 'block';
+    document.getElementById('lbl-update').textContent = 'Verbindingsfout';
+    console.error(err);
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>
